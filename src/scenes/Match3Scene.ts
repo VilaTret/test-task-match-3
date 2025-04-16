@@ -27,7 +27,14 @@ export default class Match3Scene extends Phaser.Scene {
     }
 
     createTile(row: number, col: number) {
-        const color = Phaser.Math.RND.pick(COLORS);
+        let color = Phaser.Math.RND.pick(COLORS);
+        const left2 = this.grid[row]?.[col - 2];
+        const top2 = this.grid[row - 2]?.[col];
+
+        while (left2?.fillColor == color || top2?.fillColor == color) {
+            color = Phaser.Math.RND.pick(COLORS);
+        }
+
         const tile = this.add
             .rectangle(
                 col * TILE_SIZE + TILE_SIZE / 2,
