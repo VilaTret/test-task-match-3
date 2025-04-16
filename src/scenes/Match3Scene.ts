@@ -1,12 +1,22 @@
 import Phaser from 'phaser';
 
 const TILE_SIZE = 64;
+const COLORS_STROKE_TILE = 0xffffff;
 const GRID_SIZE = 8;
 const COLORS = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xbb00ee];
 
+const DURATION = 400;
+
 export default class Match3Scene extends Phaser.Scene {
     private grid: Phaser.GameObjects.Rectangle[][] = [];
-    private selectedTile: { row: number; col: number } | null = null;
+
+    private draggedTile: {
+        row: number;
+        col: number;
+        sprite: Phaser.GameObjects.Rectangle;
+    } | null = null;
+
+    private dragOffset: { x: number; y: number } = { x: 0, y: 0 };
 
     constructor() {
         super('Match3Scene');
@@ -14,7 +24,66 @@ export default class Match3Scene extends Phaser.Scene {
 
     create() {
         this.createGrid();
-        this.input.on('pointerdown', this.handlePointerDown, this);
+        this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+            const col = Math.floor(pointer.x / TILE_SIZE);
+            const row = Math.floor(pointer.y / TILE_SIZE);
+            const tile = this.grid[row]?.[col];
+            if (tile) {
+                this.draggedTile = { row, col, sprite: tile };
+                this.dragOffset = {
+                    x: pointer.x - tile.x,
+                    y: pointer.y - tile.y,
+                };
+                tile.setDepth(1); // на передній план
+            }
+        });
+        this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+            if (!this.draggedTile) return;
+
+            const tile = this.draggedTile.sprite;
+            tile.x = pointer.x - this.dragOffset.x;
+            tile.y = pointer.y - this.dragOffset.y;
+
+            const toCol = Math.floor(pointer.x / TILE_SIZE);
+            const toRow = Math.floor(pointer.y / TILE_SIZE);
+
+            const from = this.draggedTile;
+
+            // Перевірка на сусіда
+            if (
+                (Math.abs(from.row - toRow) === 1 && from.col === toCol) ||
+                (Math.abs(from.col - toCol) === 1 && from.row === toRow)
+            ) {
+                const toTile = this.grid[toRow]?.[toCol];
+                if (!toTile) return;
+
+                this.draggedTile.sprite.setDepth(0);
+                this.draggedTile = null;
+
+                this.swapTiles(from.row, from.col, toRow, toCol);
+
+                this.time.delayedCall(150, () => {
+                    if (!this.checkMatches()) {
+                        this.swapTiles(from.row, from.col, toRow, toCol);
+                    }
+                });
+            }
+        });
+        this.input.on('pointerup', () => {
+            if (!this.draggedTile) return;
+
+            const { row, col, sprite } = this.draggedTile;
+            sprite.setDepth(0);
+            this.tweens.add({
+                targets: sprite,
+                x: col * TILE_SIZE + TILE_SIZE / 2,
+                y: row * TILE_SIZE + TILE_SIZE / 2,
+                duration: 100,
+                ease: 'Power2',
+            });
+
+            this.draggedTile = null;
+        });
     }
 
     createGrid() {
@@ -38,144 +107,46 @@ export default class Match3Scene extends Phaser.Scene {
         const tile = this.add
             .rectangle(
                 col * TILE_SIZE + TILE_SIZE / 2,
-                row * TILE_SIZE + TILE_SIZE / 2,
+                -TILE_SIZE,
                 TILE_SIZE - 4,
                 TILE_SIZE - 4,
                 color,
             )
-            .setStrokeStyle(2, 0xffffff)
+            .setStrokeStyle(2, COLORS_STROKE_TILE)
             .setInteractive();
 
         this.grid[row][col] = tile;
-        return tile;
-    }
 
-    handlePointerDown(pointer: Phaser.Input.Pointer) {
-        const col = Math.floor(pointer.x / TILE_SIZE);
-        const row = Math.floor(pointer.y / TILE_SIZE);
-
-        if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) return;
-
-        if (!this.selectedTile) {
-            this.selectedTile = { row, col };
-            this.highlightTile(row, col);
-        } else {
-            const { row: prevRow, col: prevCol } = this.selectedTile;
-            if (this.areAdjacent(row, col, prevRow, prevCol)) {
-                this.swapTiles(row, col, prevRow, prevCol);
-                this.time.delayedCall(100, () => {
-                    if (!this.checkMatches()) {
-                        this.swapTiles(row, col, prevRow, prevCol); // swap back if no match
-                    }
-                });
-            }
-            this.clearHighlights();
-            this.selectedTile = null;
-        }
-    }
-
-    // handlePointerDown(pointer: Phaser.Input.Pointer) {
-    //     const col = Math.floor(pointer.x / TILE_SIZE);
-    //     const row = Math.floor(pointer.y / TILE_SIZE);
-
-    //     if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) return;
-
-    //     // Збереження вибраної плитки
-    //     this.selectedTile = { row, col };
-
-    //     // Додаємо плитці можливість слідувати за мишкою
-    //     const tile = this.grid[row][col];
-    //     tile.setData('isDragging', true);
-    //     tile.setData('offsetX', pointer.x - tile.x);
-    //     tile.setData('offsetY', pointer.y - tile.y);
-
-    //     // Встановлюємо обробник для переміщення плитки
-    //     this.input.on('pointermove', this.handlePointerMove, this);
-
-    //     // Встановлюємо обробник для відпускання плитки
-    //     this.input.once('pointerup', this.handlePointerUp, this);
-    // }
-
-    // handlePointerMove(pointer: Phaser.Input.Pointer) {
-    //     if (this.selectedTile) {
-    //         const tile =
-    //             this.grid[this.selectedTile.row][this.selectedTile.col];
-    //         // Оновлюємо позицію плитки згідно з координатами миші
-    //         tile.x = pointer.x - tile.getData('offsetX');
-    //         tile.y = pointer.y - tile.getData('offsetY');
-    //     }
-    // }
-
-    // handlePointerUp(pointer: Phaser.Input.Pointer) {
-    //     if (this.selectedTile) {
-    //         const { row, col } = this.selectedTile;
-
-    //         const colTarget = Math.floor(pointer.x / TILE_SIZE);
-    //         const rowTarget = Math.floor(pointer.y / TILE_SIZE);
-
-    //         // Перевірка, чи плитка переміщена в іншу клітинку
-    //         if (row !== rowTarget || col !== colTarget) {
-    //             this.moveTileTo(row, col, rowTarget, colTarget);
-    //         }
-
-    //         // Відновлення плитки до початкового положення
-    //         const tile = this.grid[row][col];
-    //         tile.setData('isDragging', false);
-
-    //         // Очищаємо вибір
-    //         this.selectedTile = null;
-    //     }
-
-    //     // Прибираємо обробник переміщення
-    //     this.input.off('pointermove', this.handlePointerMove, this);
-    // }
-
-    // moveTileTo(fromRow: number, fromCol: number, toRow: number, toCol: number) {
-    //     // Переміщення плитки в нову позицію
-    //     const tile = this.grid[fromRow][fromCol];
-    //     this.grid[toRow][toCol] = tile;
-    //     this.grid[fromRow][fromCol] = null!;
-
-    //     // Оновлюємо координати плитки
-    //     tile.setPosition(
-    //         toCol * TILE_SIZE + TILE_SIZE / 2,
-    //         toRow * TILE_SIZE + TILE_SIZE / 2,
-    //     );
-
-    //     // Перевіряємо на наявність комбінацій після переміщення
-    //     this.checkMatches();
-    // }
-
-    highlightTile(row: number, col: number) {
-        this.grid[row][col].setStrokeStyle(4, 0xffffff);
-    }
-
-    clearHighlights() {
-        for (let row = 0; row < GRID_SIZE; row++) {
-            for (let col = 0; col < GRID_SIZE; col++) {
-                this.grid[row][col].setStrokeStyle(2, 0xffffff);
-            }
-        }
-    }
-
-    areAdjacent(r1: number, c1: number, r2: number, c2: number): boolean {
-        return (
-            (Math.abs(r1 - r2) === 1 && c1 === c2) ||
-            (Math.abs(c1 - c2) === 1 && r1 === r2)
-        );
+        this.tweens.add({
+            targets: tile,
+            y: row * TILE_SIZE + TILE_SIZE / 2,
+            duration: DURATION,
+            delay: col * 50 + row * 20, // для ефекту каскаду
+            ease: 'Bounce.Out',
+        });
     }
 
     swapTiles(r1: number, c1: number, r2: number, c2: number) {
         const tile1 = this.grid[r1][c1];
         const tile2 = this.grid[r2][c2];
 
-        // Swap positions
-        const tempX = tile1.x;
-        const tempY = tile1.y;
-        tile1.x = tile2.x;
-        tile1.y = tile2.y;
-        tile2.x = tempX;
-        tile2.y = tempY;
+        // Анімоване переміщення tile1
+        this.tweens.add({
+            targets: tile1,
+            x: c2 * TILE_SIZE + TILE_SIZE / 2,
+            y: r2 * TILE_SIZE + TILE_SIZE / 2,
+            duration: 100,
+            ease: 'Power2',
+        });
+
+        // Анімоване переміщення tile2
+        this.tweens.add({
+            targets: tile2,
+            x: c1 * TILE_SIZE + TILE_SIZE / 2,
+            y: r1 * TILE_SIZE + TILE_SIZE / 2,
+            duration: 100,
+            ease: 'Power2',
+        });
 
         // Swap in grid
         this.grid[r1][c1] = tile2;
@@ -183,7 +154,6 @@ export default class Match3Scene extends Phaser.Scene {
     }
 
     checkMatches(): boolean {
-        const matched: { row: number; col: number }[] = [];
         const matchedSet = new Set<string>();
 
         // Horizontal
@@ -216,6 +186,7 @@ export default class Match3Scene extends Phaser.Scene {
 
         if (matchedSet.size === 0) return false;
 
+        // this.input.enabled = false;
         matchedSet.forEach(key => {
             const [row, col] = key.split(',').map(Number);
             this.grid[row][col].destroy();
@@ -224,6 +195,7 @@ export default class Match3Scene extends Phaser.Scene {
 
         this.time.delayedCall(200, () => {
             this.dropTiles();
+            // this.input.enabled = true;
         });
 
         return true;
@@ -243,7 +215,7 @@ export default class Match3Scene extends Phaser.Scene {
                     this.tweens.add({
                         targets: tile,
                         y: tile.y + TILE_SIZE * emptySpots,
-                        duration: 200,
+                        duration: DURATION,
                         ease: 'Bounce.Out',
                     });
                 }
@@ -251,19 +223,11 @@ export default class Match3Scene extends Phaser.Scene {
 
             // Створення нових плиток
             for (let i = 0; i < emptySpots; i++) {
-                const newTile = this.createTile(i, col);
-                newTile.y -= TILE_SIZE * emptySpots; // спавн вище, щоб анімовано впала вниз
-
-                this.tweens.add({
-                    targets: newTile,
-                    y: i * TILE_SIZE + TILE_SIZE / 2,
-                    duration: 200,
-                    ease: 'Bounce.Out',
-                });
+                this.createTile(i, col);
             }
         }
 
-        this.time.delayedCall(250, () => {
+        this.time.delayedCall(DURATION + 100, () => {
             this.checkMatches();
         });
     }
