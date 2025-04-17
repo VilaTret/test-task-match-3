@@ -4,6 +4,7 @@ import './style.css';
 
 const config: Phaser.Types.Core.GameConfig = {
     type: Phaser.AUTO,
+    parent: 'app',
     width: 512,
     height: 512,
     backgroundColor: '#222',

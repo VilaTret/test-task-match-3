@@ -1,11 +1,5 @@
 import Phaser from 'phaser';
-
-const TILE_SIZE = 64;
-const COLORS_STROKE_TILE = 0xffffff;
-const GRID_SIZE = 8;
-const COLORS = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xbb00ee];
-
-const DURATION = 400;
+import { GRID, TILE } from '../utils/constants';
 
 export default class Match3Scene extends Phaser.Scene {
     private grid: Phaser.GameObjects.Rectangle[][] = [];
@@ -18,6 +12,8 @@ export default class Match3Scene extends Phaser.Scene {
 
     private dragOffset: { x: number; y: number } = { x: 0, y: 0 };
 
+    private tilesToDrop: number = 0;
+
     constructor() {
         super('Match3Scene');
     }
@@ -25,8 +21,8 @@ export default class Match3Scene extends Phaser.Scene {
     create() {
         this.createGrid();
         this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-            const col = Math.floor(pointer.x / TILE_SIZE);
-            const row = Math.floor(pointer.y / TILE_SIZE);
+            const col = Math.floor(pointer.x / TILE.SIZE);
+            const row = Math.floor(pointer.y / TILE.SIZE);
             const tile = this.grid[row]?.[col];
             if (tile) {
                 this.draggedTile = { row, col, sprite: tile };
@@ -34,7 +30,7 @@ export default class Match3Scene extends Phaser.Scene {
                     x: pointer.x - tile.x,
                     y: pointer.y - tile.y,
                 };
-                tile.setDepth(1); // на передній план
+                tile.setDepth(1);
             }
         });
         this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
@@ -44,12 +40,11 @@ export default class Match3Scene extends Phaser.Scene {
             tile.x = pointer.x - this.dragOffset.x;
             tile.y = pointer.y - this.dragOffset.y;
 
-            const toCol = Math.floor(pointer.x / TILE_SIZE);
-            const toRow = Math.floor(pointer.y / TILE_SIZE);
+            const toCol = Math.floor(pointer.x / TILE.SIZE);
+            const toRow = Math.floor(pointer.y / TILE.SIZE);
 
             const from = this.draggedTile;
 
-            // Перевірка на сусіда
             if (
                 (Math.abs(from.row - toRow) === 1 && from.col === toCol) ||
                 (Math.abs(from.col - toCol) === 1 && from.row === toRow)
@@ -62,7 +57,7 @@ export default class Match3Scene extends Phaser.Scene {
 
                 this.swapTiles(from.row, from.col, toRow, toCol);
 
-                this.time.delayedCall(150, () => {
+                this.time.delayedCall(TILE.SWAP_DURATION + 50, () => {
                     if (!this.checkMatches()) {
                         this.swapTiles(from.row, from.col, toRow, toCol);
                     }
@@ -76,9 +71,9 @@ export default class Match3Scene extends Phaser.Scene {
             sprite.setDepth(0);
             this.tweens.add({
                 targets: sprite,
-                x: col * TILE_SIZE + TILE_SIZE / 2,
-                y: row * TILE_SIZE + TILE_SIZE / 2,
-                duration: 100,
+                x: col * TILE.SIZE + TILE.SIZE / 2,
+                y: row * TILE.SIZE + TILE.SIZE / 2,
+                duration: TILE.SWAP_DURATION,
                 ease: 'Power2',
             });
 
@@ -87,78 +82,82 @@ export default class Match3Scene extends Phaser.Scene {
     }
 
     createGrid() {
-        for (let row = 0; row < GRID_SIZE; row++) {
+        for (let row = 0; row < GRID.SIZE; row++) {
             this.grid[row] = [];
-            for (let col = 0; col < GRID_SIZE; col++) {
+            for (let col = 0; col < GRID.SIZE; col++) {
                 this.createTile(row, col);
             }
         }
     }
 
     createTile(row: number, col: number) {
-        let color = Phaser.Math.RND.pick(COLORS);
+        this.input.enabled = false;
+        let color = Phaser.Math.RND.pick(TILE.COLORS);
         const left2 = this.grid[row]?.[col - 2];
         const top2 = this.grid[row - 2]?.[col];
 
         while (left2?.fillColor == color || top2?.fillColor == color) {
-            color = Phaser.Math.RND.pick(COLORS);
+            color = Phaser.Math.RND.pick(TILE.COLORS);
         }
 
         const tile = this.add
             .rectangle(
-                col * TILE_SIZE + TILE_SIZE / 2,
-                -TILE_SIZE,
-                TILE_SIZE - 4,
-                TILE_SIZE - 4,
+                col * TILE.SIZE + TILE.SIZE / 2,
+                -TILE.SIZE,
+                TILE.SIZE - 4,
+                TILE.SIZE - 4,
                 color,
             )
-            .setStrokeStyle(2, COLORS_STROKE_TILE)
+            .setStrokeStyle(TILE.WIDTH_STROKE, TILE.COLORS_STROKE)
             .setInteractive();
 
         this.grid[row][col] = tile;
 
+        this.tilesToDrop++;
         this.tweens.add({
             targets: tile,
-            y: row * TILE_SIZE + TILE_SIZE / 2,
-            duration: DURATION,
-            delay: col * 50 + row * 20, // для ефекту каскаду
+            y: row * TILE.SIZE + TILE.SIZE / 2,
+            duration: TILE.DROP_DURATION,
+            delay: col * 50 + row * 20,
             ease: 'Bounce.Out',
+            onComplete: () => {
+                this.tilesToDrop--;
+                if (this.tilesToDrop === 0) {
+                    this.input.enabled = true;
+                }
+            },
         });
     }
 
-    swapTiles(r1: number, c1: number, r2: number, c2: number) {
-        const tile1 = this.grid[r1][c1];
-        const tile2 = this.grid[r2][c2];
+    swapTiles(row1: number, col1: number, row2: number, col2: number) {
+        const tile1 = this.grid[row1][col1];
+        const tile2 = this.grid[row2][col2];
 
-        // Анімоване переміщення tile1
         this.tweens.add({
             targets: tile1,
-            x: c2 * TILE_SIZE + TILE_SIZE / 2,
-            y: r2 * TILE_SIZE + TILE_SIZE / 2,
-            duration: 100,
+            x: col2 * TILE.SIZE + TILE.SIZE / 2,
+            y: row2 * TILE.SIZE + TILE.SIZE / 2,
+            duration: TILE.SWAP_DURATION,
             ease: 'Power2',
         });
 
-        // Анімоване переміщення tile2
         this.tweens.add({
             targets: tile2,
-            x: c1 * TILE_SIZE + TILE_SIZE / 2,
-            y: r1 * TILE_SIZE + TILE_SIZE / 2,
-            duration: 100,
+            x: col1 * TILE.SIZE + TILE.SIZE / 2,
+            y: row1 * TILE.SIZE + TILE.SIZE / 2,
+            duration: TILE.SWAP_DURATION,
             ease: 'Power2',
         });
 
-        // Swap in grid
-        this.grid[r1][c1] = tile2;
-        this.grid[r2][c2] = tile1;
+        this.grid[row1][col1] = tile2;
+        this.grid[row2][col2] = tile1;
     }
 
     checkMatches(): boolean {
         const matchedSet = new Set<string>();
 
-        // Horizontal
-        for (let row = 0; row < GRID_SIZE; row++) {
-            for (let col = 0; col < GRID_SIZE - 2; col++) {
+        for (let row = 0; row < GRID.SIZE; row++) {
+            for (let col = 0; col < GRID.SIZE - 2; col++) {
                 const a = this.grid[row][col].fillColor;
                 const b = this.grid[row][col + 1].fillColor;
                 const c = this.grid[row][col + 2].fillColor;
@@ -170,9 +169,8 @@ export default class Match3Scene extends Phaser.Scene {
             }
         }
 
-        // Vertical
-        for (let col = 0; col < GRID_SIZE; col++) {
-            for (let row = 0; row < GRID_SIZE - 2; row++) {
+        for (let col = 0; col < GRID.SIZE; col++) {
+            for (let row = 0; row < GRID.SIZE - 2; row++) {
                 const a = this.grid[row][col].fillColor;
                 const b = this.grid[row + 1][col].fillColor;
                 const c = this.grid[row + 2][col].fillColor;
@@ -186,25 +184,24 @@ export default class Match3Scene extends Phaser.Scene {
 
         if (matchedSet.size === 0) return false;
 
-        // this.input.enabled = false;
+        this.input.enabled = false;
         matchedSet.forEach(key => {
             const [row, col] = key.split(',').map(Number);
             this.grid[row][col].destroy();
             this.grid[row][col] = null!;
         });
 
-        this.time.delayedCall(200, () => {
+        this.time.delayedCall(TILE.DESTROY_DURATION, () => {
             this.dropTiles();
-            // this.input.enabled = true;
         });
 
         return true;
     }
 
     dropTiles() {
-        for (let col = 0; col < GRID_SIZE; col++) {
+        for (let col = 0; col < GRID.SIZE; col++) {
             let emptySpots = 0;
-            for (let row = GRID_SIZE - 1; row >= 0; row--) {
+            for (let row = GRID.SIZE - 1; row >= 0; row--) {
                 const tile = this.grid[row][col];
                 if (!tile) {
                     emptySpots++;
@@ -212,22 +209,28 @@ export default class Match3Scene extends Phaser.Scene {
                     this.grid[row + emptySpots][col] = tile;
                     this.grid[row][col] = null!;
 
+                    this.tilesToDrop++;
                     this.tweens.add({
                         targets: tile,
-                        y: tile.y + TILE_SIZE * emptySpots,
-                        duration: DURATION,
+                        y: tile.y + TILE.SIZE * emptySpots,
+                        duration: TILE.DROP_DURATION,
                         ease: 'Bounce.Out',
+                        onComplete: () => {
+                            this.tilesToDrop--;
+                            if (this.tilesToDrop === 0) {
+                                this.input.enabled = true;
+                            }
+                        },
                     });
                 }
             }
 
-            // Створення нових плиток
             for (let i = 0; i < emptySpots; i++) {
                 this.createTile(i, col);
             }
         }
 
-        this.time.delayedCall(DURATION + 100, () => {
+        this.time.delayedCall(TILE.DROP_DURATION + 100, () => {
             this.checkMatches();
         });
     }
